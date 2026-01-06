@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useRef, useEffect } from 'react';
+import { useCallback, useState, useRef } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -10,6 +10,7 @@ import ReactFlow, {
   BackgroundVariant,
   ReactFlowProvider,
   useReactFlow,
+  NodeMouseHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -37,8 +38,8 @@ const nodeTypes = {
 function MindMapInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [selectedNodes, setSelectedNodes] = useState<Set<string>>(new Set());
-  const [loadingNodes, setLoadingNodes] = useState<Set<string>>(new Set());
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [loadingNodeId, setLoadingNodeId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const nodeIdCounter = useRef(0);
@@ -70,13 +71,10 @@ function MindMapInner() {
     return positions;
   };
 
-  const handleNodeClick = useCallback(async (nodeId: string) => {
-    if (loadingNodes.has(nodeId) || isGenerating) return;
+  const onNodeClick: NodeMouseHandler = useCallback(async (event, node) => {
+    if (loadingNodeId || isGenerating) return;
 
-    const node = nodes.find(n => n.id === nodeId);
-    if (!node) return;
-
-    setLoadingNodes(prev => new Set(prev).add(nodeId));
+    setLoadingNodeId(node.id);
     setIsGenerating(true);
 
     try {
@@ -90,7 +88,7 @@ function MindMapInner() {
 
       const { words } = await response.json() as { words: WordData[] };
 
-      const existingChildEdges = edges.filter(e => e.source === nodeId);
+      const existingChildEdges = edges.filter(e => e.source === node.id);
       const startAngle = existingChildEdges.length > 0
         ? Math.random() * Math.PI * 2
         : -Math.PI / 2;
@@ -113,14 +111,12 @@ function MindMapInner() {
           isSelected: false,
           isCenter: false,
           isLoading: false,
-          onClick: () => {},
-          onRightClick: () => {},
         },
       }));
 
       const newEdges: Edge[] = newNodes.map(newNode => ({
-        id: `edge-${nodeId}-${newNode.id}`,
-        source: nodeId,
+        id: `edge-${node.id}-${newNode.id}`,
+        source: node.id,
         target: newNode.id,
         type: 'default',
         animated: true,
@@ -139,56 +135,45 @@ function MindMapInner() {
       };
       setHistory(prev => [historyItem, ...prev.slice(0, 49)]);
 
+      setTimeout(() => fitView({ padding: 0.2, duration: 500 }), 100);
+
     } catch (error) {
       console.error('Failed to generate:', error);
       alert('生成关联词失败，请重试');
     } finally {
-      setLoadingNodes(prev => {
-        const next = new Set(prev);
-        next.delete(nodeId);
-        return next;
-      });
+      setLoadingNodeId(null);
       setIsGenerating(false);
     }
-  }, [nodes, edges, loadingNodes, isGenerating, setNodes, setEdges]);
+  }, [nodes, edges, loadingNodeId, isGenerating, setNodes, setEdges, fitView]);
 
-  const handleNodeRightClick = useCallback((nodeId: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    setSelectedNodes(prev => {
-      const next = new Set(prev);
-      if (next.has(nodeId)) {
-        next.delete(nodeId);
+  const onNodeContextMenu: NodeMouseHandler = useCallback((event, node) => {
+    event.preventDefault();
+    setSelectedNodeIds(prev => {
+      if (prev.includes(node.id)) {
+        return prev.filter(id => id !== node.id);
       } else {
-        next.add(nodeId);
+        return [...prev, node.id];
       }
-      return next;
     });
-  }, []);
 
-  useEffect(() => {
-    setNodes(nds =>
-      nds.map(node => ({
-        ...node,
-        data: {
-          ...node.data,
-          isSelected: selectedNodes.has(node.id),
-          isLoading: loadingNodes.has(node.id),
-          onClick: () => handleNodeClick(node.id),
-          onRightClick: (e: React.MouseEvent) => handleNodeRightClick(node.id, e),
-        },
-      }))
-    );
-  }, [selectedNodes, loadingNodes, handleNodeClick, handleNodeRightClick, setNodes]);
+    // Update node appearance
+    setNodes(nds => nds.map(n => ({
+      ...n,
+      data: {
+        ...n.data,
+        isSelected: n.id === node.id ? !n.data.isSelected : n.data.isSelected,
+      }
+    })));
+  }, [setNodes]);
 
   const handleInputSubmit = useCallback(async (word: string) => {
-    const selectedNodesList = nodes.filter(n => selectedNodes.has(n.id));
-
     let centerX = 0;
     let centerY = 0;
 
-    if (selectedNodesList.length > 0) {
-      const avgX = selectedNodesList.reduce((sum, n) => sum + n.position.x, 0) / selectedNodesList.length;
-      const avgY = selectedNodesList.reduce((sum, n) => sum + n.position.y, 0) / selectedNodesList.length;
+    if (selectedNodeIds.length > 0) {
+      const selectedNodes = nodes.filter(n => selectedNodeIds.includes(n.id));
+      const avgX = selectedNodes.reduce((sum, n) => sum + n.position.x, 0) / selectedNodes.length;
+      const avgY = selectedNodes.reduce((sum, n) => sum + n.position.y, 0) / selectedNodes.length;
       centerX = avgX + 200;
       centerY = avgY;
     } else if (nodes.length > 0) {
@@ -208,35 +193,37 @@ function MindMapInner() {
         isSelected: false,
         isCenter: true,
         isLoading: false,
-        onClick: () => {},
-        onRightClick: () => {},
       },
     };
 
-    const newEdges: Edge[] = selectedNodesList.map(selectedNode => ({
-      id: `edge-${selectedNode.id}-${newNodeId}`,
-      source: selectedNode.id,
+    const newEdges: Edge[] = selectedNodeIds.map(selectedId => ({
+      id: `edge-${selectedId}-${newNodeId}`,
+      source: selectedId,
       target: newNodeId,
       type: 'default',
       animated: true,
       style: { stroke: '#FFD700', strokeWidth: 2 },
     }));
 
-    setNodes(nds => [...nds, newNode]);
+    // Clear selection
+    setNodes(nds => [
+      ...nds.map(n => ({ ...n, data: { ...n.data, isSelected: false } })),
+      newNode
+    ]);
     setEdges(eds => [...eds, ...newEdges]);
-    setSelectedNodes(new Set());
+    setSelectedNodeIds([]);
 
     setTimeout(() => {
       fitView({ padding: 0.2, duration: 500 });
     }, 100);
-  }, [nodes, selectedNodes, setNodes, setEdges, fitView]);
+  }, [nodes, selectedNodeIds, setNodes, setEdges, fitView]);
 
   const handleHistorySelect = useCallback((historyId: string) => {
     const item = history.find(h => h.id === historyId);
     if (item) {
       setNodes(item.nodes);
       setEdges(item.edges);
-      setSelectedNodes(new Set());
+      setSelectedNodeIds([]);
       setTimeout(() => fitView({ padding: 0.2, duration: 500 }), 100);
     }
   }, [history, setNodes, setEdges, fitView]);
@@ -248,10 +235,18 @@ function MindMapInner() {
   return (
     <div className="w-screen h-screen bg-white relative">
       <ReactFlow
-        nodes={nodes}
+        nodes={nodes.map(n => ({
+          ...n,
+          data: {
+            ...n.data,
+            isLoading: n.id === loadingNodeId,
+          }
+        }))}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeClick={onNodeClick}
+        onNodeContextMenu={onNodeContextMenu}
         nodeTypes={nodeTypes}
         fitView
         minZoom={0.1}

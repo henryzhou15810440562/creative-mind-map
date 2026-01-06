@@ -9,12 +9,10 @@ export interface WordNodeData {
   isSelected: boolean;
   isCenter: boolean;
   isLoading: boolean;
-  onClick: () => void;
-  onRightClick: (e: React.MouseEvent) => void;
 }
 
 function WordNode({ data }: NodeProps<WordNodeData>) {
-  const { chinese, english, isSelected, isCenter, isLoading, onClick, onRightClick } = data;
+  const { chinese, english, isSelected, isCenter, isLoading } = data;
 
   const size = isCenter || isSelected ? 140 : 110;
   const fontSize = isCenter || isSelected ? 'text-lg' : 'text-base';
@@ -46,8 +44,6 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
             ? '0 8px 32px rgba(255,215,0,0.3), inset 0 2px 4px rgba(255,255,255,0.5)'
             : '0 8px 32px rgba(0,0,0,0.1), inset 0 2px 4px rgba(255,255,255,0.5)',
         }}
-        onClick={onClick}
-        onContextMenu={onRightClick}
       >
         <div
           className={`${fontSize} font-bold text-center px-3 leading-tight ${isSelected ? 'text-black' : 'text-gray-800'}`}
@@ -62,19 +58,21 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
         >
           {chinese}
         </div>
-        <div
-          className={`${englishFontSize} mt-1 text-center px-2 ${isSelected ? 'text-gray-700' : 'text-gray-500'}`}
-          style={{
-            maxWidth: size - 16,
-            wordBreak: 'break-word',
-            overflow: 'hidden',
-            display: '-webkit-box',
-            WebkitLineClamp: 1,
-            WebkitBoxOrient: 'vertical',
-          }}
-        >
-          {english}
-        </div>
+        {english && (
+          <div
+            className={`${englishFontSize} mt-1 text-center px-2 ${isSelected ? 'text-gray-700' : 'text-gray-500'}`}
+            style={{
+              maxWidth: size - 16,
+              wordBreak: 'break-word',
+              overflow: 'hidden',
+              display: '-webkit-box',
+              WebkitLineClamp: 1,
+              WebkitBoxOrient: 'vertical',
+            }}
+          >
+            {english}
+          </div>
+        )}
 
         {isLoading && (
           <div
