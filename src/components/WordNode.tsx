@@ -18,9 +18,9 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
 
   // 如果有详细内容，使用矩形卡片样式
   if (detail) {
-    const maxWidth = 350;
-    const minWidth = 200;
-    const maxHeight = 300;
+    const maxWidth = 400;
+    const minWidth = 250;
+    const maxHeight = 400;
     
     return (
       <>
@@ -28,10 +28,9 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
         <div
           className={`
             relative cursor-pointer select-none
-            transition-all duration-300 ease-out
-            hover:scale-105 active:scale-95
+            transition-all duration-200 ease-out
             ${isLoading ? 'animate-pulse' : ''}
-            rounded-2xl
+            rounded-2xl overflow-hidden
           `}
           style={{
             minWidth: minWidth,
@@ -39,30 +38,35 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
             maxHeight: maxHeight,
             background: isSelected
               ? 'linear-gradient(135deg, #FFD700 0%, #FFC107 100%)'
-              : 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
+              : 'linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(255,255,255,0.95) 100%)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
             border: isSelected
               ? '2px solid #FFD700'
-              : '1px solid rgba(0,0,0,0.1)',
+              : '2px solid rgba(0,0,0,0.08)',
             boxShadow: isSelected
-              ? '0 8px 32px rgba(255,215,0,0.3), inset 0 2px 4px rgba(255,255,255,0.5)'
-              : '0 8px 32px rgba(0,0,0,0.15), inset 0 2px 4px rgba(255,255,255,0.5)',
+              ? '0 12px 40px rgba(255,215,0,0.4), inset 0 2px 4px rgba(255,255,255,0.6)'
+              : '0 12px 40px rgba(0,0,0,0.12), inset 0 2px 4px rgba(255,255,255,0.6)',
           }}
         >
-          <div className="p-4 overflow-y-auto" style={{ maxHeight: maxHeight - 8 }}>
-            <div className={`text-base font-bold mb-2 ${isSelected ? 'text-black' : 'text-gray-800'}`}>
+          <div 
+            className="p-5 overflow-y-auto custom-scrollbar" 
+            style={{ 
+              maxHeight: maxHeight,
+            }}
+          >
+            <div className={`text-lg font-bold mb-3 ${isSelected ? 'text-black' : 'text-gray-900'}`}>
               {chinese}
             </div>
             {english && (
-              <div className={`text-xs mb-2 ${isSelected ? 'text-gray-700' : 'text-gray-500'}`}>
+              <div className={`text-xs mb-3 font-medium ${isSelected ? 'text-gray-700' : 'text-gray-600'}`}>
                 {english}
               </div>
             )}
             <div 
-              className={`text-sm leading-relaxed whitespace-pre-wrap ${isSelected ? 'text-gray-900' : 'text-gray-700'}`}
+              className={`text-sm leading-relaxed whitespace-pre-wrap ${isSelected ? 'text-gray-900' : 'text-gray-800'}`}
               style={{
-                fontFamily: 'monospace',
+                fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
                 wordBreak: 'break-word',
               }}
             >
