@@ -42,6 +42,9 @@ function MindMapInner() {
   const [loadingNodeId, setLoadingNodeId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [summary, setSummary] = useState('');
+  const [isSummarizing, setIsSummarizing] = useState(false);
   const nodeIdCounter = useRef(0);
   const { fitView } = useReactFlow();
 
@@ -156,7 +159,6 @@ function MindMapInner() {
       }
     });
 
-    // Update node appearance
     setNodes(nds => nds.map(n => ({
       ...n,
       data: {
@@ -205,7 +207,6 @@ function MindMapInner() {
       style: { stroke: '#FFD700', strokeWidth: 2 },
     }));
 
-    // Clear selection
     setNodes(nds => [
       ...nds.map(n => ({ ...n, data: { ...n.data, isSelected: false } })),
       newNode
@@ -217,6 +218,40 @@ function MindMapInner() {
       fitView({ padding: 0.2, duration: 500 });
     }, 100);
   }, [nodes, selectedNodeIds, setNodes, setEdges, fitView]);
+
+  const handleGenerateSummary = useCallback(async () => {
+    if (nodes.length === 0) {
+      alert('请先添加一些概念节点');
+      return;
+    }
+
+    setIsSummarizing(true);
+    setShowSummary(true);
+    setSummary('');
+
+    try {
+      const allNodes = nodes.map(n => ({
+        chinese: n.data.chinese,
+        english: n.data.english || '',
+      }));
+
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'summarize', allNodes }),
+      });
+
+      if (!response.ok) throw new Error('生成失败');
+
+      const { summary: summaryText } = await response.json();
+      setSummary(summaryText);
+    } catch (error) {
+      console.error('Failed to generate summary:', error);
+      setSummary('生成总结失败，请重试。');
+    } finally {
+      setIsSummarizing(false);
+    }
+  }, [nodes]);
 
   const handleHistorySelect = useCallback((historyId: string) => {
     const item = history.find(h => h.id === historyId);
@@ -231,6 +266,13 @@ function MindMapInner() {
   const handleHistoryClear = useCallback(() => {
     setHistory([]);
   }, []);
+
+  const handleClearAll = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setSelectedNodeIds([]);
+    nodeIdCounter.current = 0;
+  }, [setNodes, setEdges]);
 
   return (
     <div className="w-screen h-screen bg-white relative">
@@ -271,9 +313,55 @@ function MindMapInner() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">创意发散思维</h2>
-            <p className="text-gray-500">在下方输入一个词语，开始你的创意之旅</p>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">知识图谱探索</h2>
+            <p className="text-gray-500">在下方输入一个概念，开始构建知识网络</p>
           </div>
+        </div>
+      )}
+
+      {/* Top left buttons */}
+      {nodes.length > 0 && (
+        <div className="fixed top-4 left-4 z-50 flex gap-2">
+          <button
+            onClick={handleGenerateSummary}
+            disabled={isSummarizing}
+            className="
+              px-4 py-2 rounded-full font-medium text-sm
+              transition-all duration-200
+              bg-yellow-400 text-black hover:bg-yellow-500
+              hover:scale-105 active:scale-95
+              disabled:opacity-50 disabled:cursor-not-allowed
+              flex items-center gap-2
+            "
+            style={{
+              boxShadow: '0 4px 16px rgba(255,215,0,0.3)',
+            }}
+          >
+            {isSummarizing ? (
+              <>
+                <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                生成中...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                生成总结
+              </>
+            )}
+          </button>
+          <button
+            onClick={handleClearAll}
+            className="
+              px-4 py-2 rounded-full font-medium text-sm
+              transition-all duration-200
+              bg-gray-200 text-gray-700 hover:bg-gray-300
+              hover:scale-105 active:scale-95
+            "
+          >
+            清空画布
+          </button>
         </div>
       )}
 
@@ -286,8 +374,74 @@ function MindMapInner() {
       <InputBox onSubmit={handleInputSubmit} disabled={isGenerating} />
 
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 text-center text-sm text-gray-400">
-        <p>点击节点发散 • 右键选中 • 选中后输入可连接</p>
+        <p>点击节点展开 • 右键选中 • 选中后输入可连接</p>
       </div>
+
+      {/* Summary Modal */}
+      {showSummary && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+          <div
+            className="bg-white rounded-2xl max-w-3xl w-full max-h-[80vh] overflow-hidden flex flex-col"
+            style={{
+              boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
+            }}
+          >
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-800">思路框架总结</h2>
+              <button
+                onClick={() => setShowSummary(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors"
+              >
+                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              {isSummarizing ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className="w-12 h-12 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mb-4" />
+                  <p className="text-gray-500">正在分析您的知识图谱...</p>
+                </div>
+              ) : (
+                <div className="prose prose-gray max-w-none">
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: summary
+                        .replace(/\n/g, '<br/>')
+                        .replace(/#{3}\s(.+)/g, '<h3 class="text-lg font-bold mt-4 mb-2">$1</h3>')
+                        .replace(/#{2}\s(.+)/g, '<h2 class="text-xl font-bold mt-6 mb-3">$1</h2>')
+                        .replace(/#{1}\s(.+)/g, '<h1 class="text-2xl font-bold mt-6 mb-3">$1</h1>')
+                        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/`(.+?)`/g, '<code class="bg-gray-100 px-1 rounded">$1</code>')
+                        .replace(/^-\s(.+)/gm, '<li class="ml-4">$1</li>')
+                        .replace(/^\d+\.\s(.+)/gm, '<li class="ml-4 list-decimal">$1</li>')
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-gray-200 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(summary);
+                  alert('已复制到剪贴板');
+                }}
+                disabled={isSummarizing || !summary}
+                className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                复制内容
+              </button>
+              <button
+                onClick={() => setShowSummary(false)}
+                className="px-4 py-2 rounded-lg bg-yellow-400 text-black hover:bg-yellow-500 transition-colors"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
