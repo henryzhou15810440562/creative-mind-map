@@ -2,7 +2,6 @@
 
 import { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { motion } from 'framer-motion';
 
 export interface WordNodeData {
   chinese: string;
@@ -24,15 +23,13 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
   return (
     <>
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
-      <motion.div
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+      <div
         className={`
           relative flex flex-col items-center justify-center
           rounded-full cursor-pointer select-none
           transition-all duration-300 ease-out
-          ${isLoading ? 'breathing pulse-ring' : ''}
+          hover:scale-105 active:scale-95
+          ${isLoading ? 'animate-pulse' : ''}
         `}
         style={{
           width: size,
@@ -51,8 +48,6 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
         }}
         onClick={onClick}
         onContextMenu={onRightClick}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.98 }}
       >
         <div
           className={`${fontSize} font-bold text-center px-3 leading-tight ${isSelected ? 'text-black' : 'text-gray-800'}`}
@@ -82,23 +77,15 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
         </div>
 
         {isLoading && (
-          <motion.div
-            className="absolute inset-0 rounded-full"
+          <div
+            className="absolute inset-0 rounded-full animate-ping"
             style={{
               border: '2px solid #FFD700',
-            }}
-            animate={{
-              scale: [1, 1.3, 1],
-              opacity: [0.5, 0, 0.5],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-              ease: 'easeInOut',
+              opacity: 0.5,
             }}
           />
         )}
-      </motion.div>
+      </div>
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
     </>
   );

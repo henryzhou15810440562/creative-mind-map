@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, KeyboardEvent } from 'react';
-import { motion } from 'framer-motion';
 
 interface InputBoxProps {
   onSubmit: (word: string) => void;
@@ -27,14 +26,9 @@ export default function InputBox({ onSubmit, disabled = false }: InputBoxProps) 
   };
 
   return (
-    <motion.div
-      initial={{ y: 100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 20, delay: 0.2 }}
-      className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50"
-    >
+    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
       <div
-        className="flex items-center gap-2 px-6 py-3 rounded-full glass-dark"
+        className="flex items-center gap-2 px-6 py-3 rounded-full"
         style={{
           background: 'rgba(0, 0, 0, 0.08)',
           backdropFilter: 'blur(16px)',
@@ -56,34 +50,28 @@ export default function InputBox({ onSubmit, disabled = false }: InputBoxProps) 
             text-base
           "
         />
-        <motion.button
+        <button
           onClick={handleSubmit}
           disabled={disabled || !value.trim()}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
           className={`
             px-5 py-2 rounded-full font-medium text-sm
             transition-all duration-200
             ${disabled || !value.trim()
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              : 'bg-black text-white hover:bg-gray-800'
+              : 'bg-black text-white hover:bg-gray-800 hover:scale-105 active:scale-95'
             }
           `}
         >
           {disabled ? (
             <span className="flex items-center gap-2">
-              <motion.span
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full"
-              />
+              <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               生成中
             </span>
           ) : (
             '发散'
           )}
-        </motion.button>
+        </button>
       </div>
-    </motion.div>
+    </div>
   );
 }
