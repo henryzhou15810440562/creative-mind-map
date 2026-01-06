@@ -13,8 +13,9 @@ const client = new Anthropic({
 
 // 常量配置
 const MAX_TOKENS = 2048;
+const MAX_TOKENS_DETAIL = 1024; // 详细内容使用较少 token
 const MODEL = 'claude-sonnet-4-20250514';
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 1; // 减少重试次数，避免超时
 
 // 类型定义
 interface WordData {
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
       const message = await withRetry(() =>
         client.messages.create({
           model: MODEL,
-          max_tokens: MAX_TOKENS,
+          max_tokens: MAX_TOKENS_DETAIL,
           messages: [
             {
               role: 'user',
@@ -83,11 +84,10 @@ export async function POST(request: NextRequest) {
 
 请判断"${word}"是否是一个需要详细解释的概念（如公式、定理、定义、具体方法等）。
 
-如果是，请提供详细内容，包括：
-- 数学公式：使用 LaTeX 格式或纯文本表示
-- 定理/定义：完整的表述
-- 方法/步骤：具体的操作说明
-- 示例：如果适用
+如果是，请提供**简洁**的详细内容（不超过 200 字），包括：
+- 数学公式：使用简洁的文本格式
+- 定理/定义：核心表述
+- 方法/步骤：关键步骤
 
 如果不是（只是一个分类或抽象概念），返回空字符串。
 
@@ -97,10 +97,10 @@ export async function POST(request: NextRequest) {
   "detail": "详细内容（如果有）"
 }
 
-示例1 - 三角函数导数公式：
+示例1 - 基本导数公式：
 {
   "hasDetail": true,
-  "detail": "基本三角函数导数公式：\\n\\n(sin x)' = cos x\\n(cos x)' = -sin x\\n(tan x)' = sec²x = 1/cos²x\\n(cot x)' = -csc²x = -1/sin²x\\n(sec x)' = sec x · tan x\\n(csc x)' = -csc x · cot x\\n\\n记忆技巧：\\n1. 正弦求导得余弦\\n2. 余弦求导得负正弦\\n3. 正切求导得正割平方"
+  "detail": "常数: (C)' = 0\\n幂函数: (x^n)' = nx^(n-1)\\n指数: (e^x)' = e^x, (a^x)' = a^x·lna\\n对数: (lnx)' = 1/x, (log_a x)' = 1/(x·lna)\\n三角: (sinx)' = cosx, (cosx)' = -sinx\\n      (tanx)' = sec²x"
 }
 
 示例2 - 导数（抽象概念）：

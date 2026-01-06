@@ -197,6 +197,11 @@ function MindMapInner() {
     const currentNode = currentNodes.find(n => n.id === node.id);
     if (!currentNode) return;
 
+    // 如果已经有详细内容，不再重复请求
+    if (currentNode.data.detail) {
+      return;
+    }
+
     const currentX = currentNode.position.x;
     const currentY = currentNode.position.y;
 
@@ -207,44 +212,59 @@ function MindMapInner() {
     setIsGenerating(true);
 
     try {
-      // 首先尝试获取详细内容
-      const detailResponse = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'detail',
-          word: currentNode.data.chinese,
-          parentPath: parentPath.length > 0 ? parentPath : undefined,
-        }),
-      });
+      // 首先尝试获取详细内容（设置 10 秒超时）
+      const detailController = new AbortController();
+      const detailTimeout = setTimeout(() => detailController.abort(), 10000);
 
-      if (detailResponse.ok) {
-        const { hasDetail, detail } = await detailResponse.json();
-        
-        if (hasDetail && detail) {
-          // 更新节点显示详细内容
-          setNodes(nds => nds.map(n =>
-            n.id === node.id
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    detail,
-                    hasDetail: true,
+      try {
+        const detailResponse = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'detail',
+            word: currentNode.data.chinese,
+            parentPath: parentPath.length > 0 ? parentPath : undefined,
+          }),
+          signal: detailController.signal,
+        });
+
+        clearTimeout(detailTimeout);
+
+        if (detailResponse.ok) {
+          const { hasDetail, detail } = await detailResponse.json();
+          
+          if (hasDetail && detail) {
+            // 更新节点显示详细内容
+            setNodes(nds => nds.map(n =>
+              n.id === node.id
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      detail,
+                      hasDetail: true,
+                    }
                   }
-                }
-              : n
-          ));
-          
-          setLoadingNodeId(null);
-          setIsGenerating(false);
-          
-          setTimeout(() => fitView({ padding: FIT_VIEW_PADDING, duration: FIT_VIEW_DURATION }), RETRY_DELAY);
-          return;
+                : n
+            ));
+            
+            setLoadingNodeId(null);
+            setIsGenerating(false);
+            
+            setTimeout(() => fitView({ padding: FIT_VIEW_PADDING, duration: FIT_VIEW_DURATION }), RETRY_DELAY);
+            return;
+          }
         }
+      } catch (detailError) {
+        clearTimeout(detailTimeout);
+        // 如果获取详细内容失败，继续尝试生成子节点
+        console.log('Detail fetch failed, falling back to child nodes:', detailError);
       }
 
-      // 如果没有详细内容，继续生成子节点
+      // 如果没有详细内容，继续生成子节点（设置 15 秒超时）
+      const childController = new AbortController();
+      const childTimeout = setTimeout(() => childController.abort(), 15000);
+
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -252,7 +272,10 @@ function MindMapInner() {
           word: currentNode.data.chinese,
           parentPath: parentPath.length > 0 ? parentPath : undefined,
         }),
+        signal: childController.signal,
       });
+
+      clearTimeout(childTimeout);
 
       if (!response.ok) throw new Error('生成失败');
 
@@ -313,7 +336,16 @@ function MindMapInner() {
 
     } catch (error) {
       console.error('Failed to generate:', error);
-      const errorMsg = error instanceof Error ? error.message : '生成关联词失败';
+      let errorMsg = '操作失败';
+      
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMsg = '请求超时，请重试';
+        } else {
+          errorMsg = error.message;
+        }
+      }
+      
       setErrorMessage(errorMsg);
     } finally {
       setLoadingNodeId(null);
@@ -647,6 +679,30 @@ function MindMapInner() {
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 text-center text-sm text-gray-400">
         <p>单击编辑 • 双击展开/查看详情 • 右键选中 • 点击连线可删除</p>
       </div>
+
+      {/* 加载中提示 */}
+      {loadingNodeId && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          <div
+            className="px-6 py-3 rounded-full bg-blue-500 text-white font-medium shadow-lg flex items-center gap-3"
+          >
+            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <span>AI 思考中...</span>
+            <button
+              onClick={() => {
+                setLoadingNodeId(null);
+                setIsGenerating(false);
+              }}
+              className="ml-2 hover:bg-blue-600 rounded-full p-1 transition-colors"
+              aria-label="取消"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 错误提示 */}
       {errorMessage && (

@@ -18,8 +18,9 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
 
   // 如果有详细内容，使用矩形卡片样式
   if (detail) {
-    const maxWidth = 400;
+    const maxWidth = 350;
     const minWidth = 200;
+    const maxHeight = 300;
     
     return (
       <>
@@ -30,11 +31,12 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
             transition-all duration-300 ease-out
             hover:scale-105 active:scale-95
             ${isLoading ? 'animate-pulse' : ''}
-            rounded-2xl p-4
+            rounded-2xl
           `}
           style={{
             minWidth: minWidth,
             maxWidth: maxWidth,
+            maxHeight: maxHeight,
             background: isSelected
               ? 'linear-gradient(135deg, #FFD700 0%, #FFC107 100%)'
               : 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)',
@@ -48,26 +50,28 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
               : '0 8px 32px rgba(0,0,0,0.15), inset 0 2px 4px rgba(255,255,255,0.5)',
           }}
         >
-          <div className={`text-base font-bold mb-2 ${isSelected ? 'text-black' : 'text-gray-800'}`}>
-            {chinese}
-          </div>
-          {english && (
-            <div className={`text-xs mb-2 ${isSelected ? 'text-gray-700' : 'text-gray-500'}`}>
-              {english}
+          <div className="p-4 overflow-y-auto" style={{ maxHeight: maxHeight - 8 }}>
+            <div className={`text-base font-bold mb-2 ${isSelected ? 'text-black' : 'text-gray-800'}`}>
+              {chinese}
             </div>
-          )}
-          <div 
-            className={`text-sm leading-relaxed whitespace-pre-wrap ${isSelected ? 'text-gray-900' : 'text-gray-700'}`}
-            style={{
-              fontFamily: 'monospace',
-              wordBreak: 'break-word',
-            }}
-          >
-            {detail}
+            {english && (
+              <div className={`text-xs mb-2 ${isSelected ? 'text-gray-700' : 'text-gray-500'}`}>
+                {english}
+              </div>
+            )}
+            <div 
+              className={`text-sm leading-relaxed whitespace-pre-wrap ${isSelected ? 'text-gray-900' : 'text-gray-700'}`}
+              style={{
+                fontFamily: 'monospace',
+                wordBreak: 'break-word',
+              }}
+            >
+              {detail}
+            </div>
           </div>
           {isLoading && (
             <div
-              className="absolute inset-0 rounded-2xl animate-ping"
+              className="absolute inset-0 rounded-2xl animate-ping pointer-events-none"
               style={{
                 border: '2px solid #FFD700',
                 opacity: 0.5,
