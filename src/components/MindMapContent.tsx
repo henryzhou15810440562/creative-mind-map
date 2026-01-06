@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -19,6 +19,15 @@ import WordNode from './WordNode';
 import InputBox from './InputBox';
 import HistoryPanel from './HistoryPanel';
 
+// 常量配置
+const RADIAL_RADIUS = 300;
+const MAX_HISTORY_ITEMS = 50;
+const CLICK_DELAY = 250;
+const FIT_VIEW_PADDING = 0.2;
+const FIT_VIEW_DURATION = 500;
+const RETRY_DELAY = 100;
+
+// 类型定义
 interface WordData {
   chinese: string;
   english: string;
@@ -36,6 +45,13 @@ const nodeTypes = {
   wordNode: WordNode,
 };
 
+// LocalStorage 键名
+const STORAGE_KEYS = {
+  HISTORY: 'mindmap_history',
+  NODES: 'mindmap_nodes',
+  EDGES: 'mindmap_edges',
+};
+
 function MindMapInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -48,9 +64,73 @@ function MindMapInner() {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const nodeIdCounter = useRef(0);
   const clickTimer = useRef<NodeJS.Timeout | null>(null);
   const { fitView, getNodes } = useReactFlow();
+
+  // 从 localStorage 加载数据
+  useEffect(() => {
+    try {
+      const savedHistory = localStorage.getItem(STORAGE_KEYS.HISTORY);
+      const savedNodes = localStorage.getItem(STORAGE_KEYS.NODES);
+      const savedEdges = localStorage.getItem(STORAGE_KEYS.EDGES);
+
+      if (savedHistory) {
+        const parsedHistory = JSON.parse(savedHistory);
+        setHistory(parsedHistory.map((item: HistoryItem) => ({
+          ...item,
+          timestamp: new Date(item.timestamp),
+        })));
+      }
+
+      if (savedNodes && savedEdges) {
+        const parsedNodes = JSON.parse(savedNodes);
+        const parsedEdges = JSON.parse(savedEdges);
+        setNodes(parsedNodes);
+        setEdges(parsedEdges);
+        
+        // 恢复节点 ID 计数器
+        const maxId = parsedNodes.reduce((max: number, node: Node) => {
+          const idNum = parseInt(node.id.replace('node-', ''));
+          return idNum > max ? idNum : max;
+        }, 0);
+        nodeIdCounter.current = maxId;
+      }
+    } catch (error) {
+      console.error('Failed to load from localStorage:', error);
+    }
+  }, [setNodes, setEdges]);
+
+  // 保存到 localStorage
+  useEffect(() => {
+    try {
+      if (nodes.length > 0 || edges.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.NODES, JSON.stringify(nodes));
+        localStorage.setItem(STORAGE_KEYS.EDGES, JSON.stringify(edges));
+      }
+    } catch (error) {
+      console.error('Failed to save to localStorage:', error);
+    }
+  }, [nodes, edges]);
+
+  useEffect(() => {
+    try {
+      if (history.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+      }
+    } catch (error) {
+      console.error('Failed to save history to localStorage:', error);
+    }
+  }, [history]);
+
+  // 错误提示自动消失
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
 
   const generateNodeId = () => {
     nodeIdCounter.current += 1;
@@ -77,26 +157,29 @@ function MindMapInner() {
     return path;
   }, [edges, getNodes]);
 
-  const calculateRadialPositions = (
-    centerX: number,
-    centerY: number,
-    count: number,
-    radius: number,
-    startAngle: number = 0
-  ) => {
-    const positions: { x: number; y: number }[] = [];
-    const angleStep = (2 * Math.PI) / count;
+  const calculateRadialPositions = useCallback(
+    (
+      centerX: number,
+      centerY: number,
+      count: number,
+      radius: number = RADIAL_RADIUS,
+      startAngle: number = 0
+    ) => {
+      const positions: { x: number; y: number }[] = [];
+      const angleStep = (2 * Math.PI) / count;
 
-    for (let i = 0; i < count; i++) {
-      const angle = startAngle + i * angleStep;
-      positions.push({
-        x: centerX + radius * Math.cos(angle),
-        y: centerY + radius * Math.sin(angle),
-      });
-    }
+      for (let i = 0; i < count; i++) {
+        const angle = startAngle + i * angleStep;
+        positions.push({
+          x: centerX + radius * Math.cos(angle),
+          y: centerY + radius * Math.sin(angle),
+        });
+      }
 
-    return positions;
-  };
+      return positions;
+    },
+    []
+  );
 
   // Double click to expand node
   const handleNodeDoubleClick: NodeMouseHandler = useCallback(async (event, node) => {
@@ -141,12 +224,12 @@ function MindMapInner() {
         ? Math.random() * Math.PI * 2
         : -Math.PI / 2;
 
-      // Use CURRENT position and larger radius (300 instead of 200)
+      // Use CURRENT position and configured radius
       const positions = calculateRadialPositions(
         currentX,
         currentY,
         words.length,
-        300, // Increased from 200 to 300
+        RADIAL_RADIUS,
         startAngle
       );
 
@@ -182,18 +265,19 @@ function MindMapInner() {
         nodes: [...currentNodes, ...newNodes],
         edges: [...edges, ...newEdges],
       };
-      setHistory(prev => [historyItem, ...prev.slice(0, 49)]);
+      setHistory(prev => [historyItem, ...prev.slice(0, MAX_HISTORY_ITEMS - 1)]);
 
-      setTimeout(() => fitView({ padding: 0.2, duration: 500 }), 100);
+      setTimeout(() => fitView({ padding: FIT_VIEW_PADDING, duration: FIT_VIEW_DURATION }), RETRY_DELAY);
 
     } catch (error) {
       console.error('Failed to generate:', error);
-      alert('生成关联词失败，请重试');
+      const errorMsg = error instanceof Error ? error.message : '生成关联词失败';
+      setErrorMessage(errorMsg);
     } finally {
       setLoadingNodeId(null);
       setIsGenerating(false);
     }
-  }, [edges, loadingNodeId, isGenerating, setNodes, setEdges, fitView, getNodePath, getNodes]);
+  }, [edges, loadingNodeId, isGenerating, setNodes, setEdges, fitView, getNodePath, getNodes, calculateRadialPositions]);
 
   // Single click to edit
   const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
@@ -226,7 +310,7 @@ function MindMapInner() {
         setEditingNodeId(node.id);
         setEditText(node.data.chinese);
       }
-    }, 250);
+    }, CLICK_DELAY);
   }, [setNodes]);
 
   // Right click for selection
@@ -251,8 +335,7 @@ function MindMapInner() {
 
   // Click edge to delete it
   const onEdgeClick: EdgeMouseHandler = useCallback((event, edge) => {
-    // Show confirm and delete
-    if (window.confirm('删除这条连线？')) {
+    if (confirm('删除这条连线？')) {
       setEdges(eds => eds.filter(e => e.id !== edge.id));
     }
   }, [setEdges]);
@@ -345,14 +428,14 @@ function MindMapInner() {
     setSelectedNodeIds([]);
 
     setTimeout(() => {
-      fitView({ padding: 0.2, duration: 500 });
-    }, 100);
+      fitView({ padding: FIT_VIEW_PADDING, duration: FIT_VIEW_DURATION });
+    }, RETRY_DELAY);
   }, [selectedNodeIds, setNodes, setEdges, fitView, getNodes]);
 
   const handleGenerateSummary = useCallback(async () => {
     const currentNodes = getNodes();
     if (currentNodes.length === 0) {
-      alert('请先添加一些概念节点');
+      setErrorMessage('请先添加一些概念节点');
       return;
     }
 
@@ -372,13 +455,18 @@ function MindMapInner() {
         body: JSON.stringify({ action: 'summarize', allNodes }),
       });
 
-      if (!response.ok) throw new Error('生成失败');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || '生成失败');
+      }
 
       const { summary: summaryText } = await response.json();
       setSummary(summaryText);
     } catch (error) {
       console.error('Failed to generate summary:', error);
-      setSummary('生成总结失败，请重试。');
+      const errorMsg = error instanceof Error ? error.message : '生成总结失败';
+      setSummary(`生成失败: ${errorMsg}`);
+      setErrorMessage(errorMsg);
     } finally {
       setIsSummarizing(false);
     }
@@ -390,19 +478,26 @@ function MindMapInner() {
       setNodes(item.nodes);
       setEdges(item.edges);
       setSelectedNodeIds([]);
-      setTimeout(() => fitView({ padding: 0.2, duration: 500 }), 100);
+      setTimeout(() => fitView({ padding: FIT_VIEW_PADDING, duration: FIT_VIEW_DURATION }), RETRY_DELAY);
     }
   }, [history, setNodes, setEdges, fitView]);
 
   const handleHistoryClear = useCallback(() => {
-    setHistory([]);
+    if (confirm('确定要清空所有历史记录吗？')) {
+      setHistory([]);
+      localStorage.removeItem(STORAGE_KEYS.HISTORY);
+    }
   }, []);
 
   const handleClearAll = useCallback(() => {
-    setNodes([]);
-    setEdges([]);
-    setSelectedNodeIds([]);
-    nodeIdCounter.current = 0;
+    if (confirm('确定要清空整个画布吗？此操作不可恢复。')) {
+      setNodes([]);
+      setEdges([]);
+      setSelectedNodeIds([]);
+      nodeIdCounter.current = 0;
+      localStorage.removeItem(STORAGE_KEYS.NODES);
+      localStorage.removeItem(STORAGE_KEYS.EDGES);
+    }
   }, [setNodes, setEdges]);
 
   return (
@@ -510,6 +605,30 @@ function MindMapInner() {
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 text-center text-sm text-gray-400">
         <p>单击编辑 • 双击展开 • 右键选中 • 点击连线可删除</p>
       </div>
+
+      {/* 错误提示 */}
+      {errorMessage && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          <div
+            className="px-6 py-3 rounded-full bg-red-500 text-white font-medium shadow-lg flex items-center gap-2"
+            role="alert"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {errorMessage}
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="ml-2 hover:bg-red-600 rounded-full p-1"
+              aria-label="关闭"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Edit Modal */}
       {editingNodeId && (

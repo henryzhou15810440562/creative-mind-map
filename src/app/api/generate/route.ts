@@ -1,23 +1,78 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextRequest, NextResponse } from 'next/server';
 
+// 验证环境变量
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.error('ANTHROPIC_API_KEY is not configured');
+}
+
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
   baseURL: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
 });
 
+// 常量配置
+const MAX_TOKENS = 2048;
+const MODEL = 'claude-sonnet-4-20250514';
+const MAX_RETRIES = 2;
+
+// 类型定义
+interface WordData {
+  chinese: string;
+  english: string;
+}
+
+interface GenerateRequest {
+  word?: string;
+  action?: 'summarize';
+  allNodes?: WordData[];
+  parentPath?: string[];
+}
+
+// 重试逻辑
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries: number = MAX_RETRIES
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return withRetry(fn, retries - 1);
+    }
+    throw error;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { word, action, allNodes, parentPath } = await request.json();
+    // 验证 API Key
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json(
+        { error: 'API 配置错误，请联系管理员' },
+        { status: 500 }
+      );
+    }
 
-    if (action === 'summarize') {
-      const nodesList = allNodes.map((n: { chinese: string; english: string }) =>
-        `${n.chinese}${n.english ? ` (${n.english})` : ''}`
-      ).join(', ');
+    const body: GenerateRequest = await request.json();
 
-      const message = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2048,
+    if (body.action === 'summarize') {
+      if (!body.allNodes || body.allNodes.length === 0) {
+        return NextResponse.json(
+          { error: '没有可总结的内容' },
+          { status: 400 }
+        );
+      }
+
+      const nodesList = body.allNodes
+        .map((n) => `${n.chinese}${n.english ? ` (${n.english})` : ''}`)
+        .join(', ');
+
+      const message = await withRetry(() =>
+        client.messages.create({
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
         messages: [
           {
             role: 'user',
@@ -47,17 +102,19 @@ ${nodesList}
     }
 
     // Generate related words with context
-    if (!word || typeof word !== 'string') {
+    if (!body.word || typeof body.word !== 'string' || body.word.trim().length === 0) {
       return NextResponse.json(
         { error: '请提供有效的词语' },
         { status: 400 }
       );
     }
 
+    const word = body.word.trim();
+
     // Build context from parent path
     let contextPrompt = '';
-    if (parentPath && parentPath.length > 0) {
-      const pathStr = parentPath.join(' → ');
+    if (body.parentPath && body.parentPath.length > 0) {
+      const pathStr = body.parentPath.join(' → ');
       contextPrompt = `
 **重要上下文**：用户正在探索的完整路径是：
 ${pathStr} → ${word}
@@ -71,9 +128,10 @@ ${pathStr} → ${word}
 生成的内容必须是当前节点"${word}"在"${pathStr}"这个主题下的**具体子分类、参数、选项或组成部分**。`;
     }
 
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
+    const message = await withRetry(() =>
+      client.messages.create({
+        model: MODEL,
+        max_tokens: 1024,
       messages: [
         {
           role: 'user',
@@ -96,26 +154,34 @@ ${contextPrompt}
 
 请直接返回JSON数组：
 [{"chinese": "概念", "english": "Concept"}]`
-        }
-      ],
-    });
+          }
+        ],
+      })
+    );
 
-    const responseText = message.content[0].type === 'text'
-      ? message.content[0].text
-      : '';
+    const responseText =
+      message.content[0].type === 'text' ? message.content[0].text : '';
 
     const jsonMatch = responseText.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      throw new Error('无法解析响应');
+      throw new Error('AI 返回格式错误');
     }
 
-    const words = JSON.parse(jsonMatch[0]);
+    const words: WordData[] = JSON.parse(jsonMatch[0]);
+
+    // 验证返回数据
+    if (!Array.isArray(words) || words.length === 0) {
+      throw new Error('生成的词语列表为空');
+    }
 
     return NextResponse.json({ words });
   } catch (error) {
     console.error('API Error:', error);
+    
+    const errorMessage = error instanceof Error ? error.message : '未知错误';
+    
     return NextResponse.json(
-      { error: '生成失败，请重试' },
+      { error: `生成失败: ${errorMessage}，请重试` },
       { status: 500 }
     );
   }
