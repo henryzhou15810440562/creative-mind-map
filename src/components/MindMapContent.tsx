@@ -45,13 +45,36 @@ function MindMapInner() {
   const [showSummary, setShowSummary] = useState(false);
   const [summary, setSummary] = useState('');
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
   const nodeIdCounter = useRef(0);
+  const clickTimer = useRef<NodeJS.Timeout | null>(null);
   const { fitView } = useReactFlow();
 
   const generateNodeId = () => {
     nodeIdCounter.current += 1;
     return `node-${nodeIdCounter.current}`;
   };
+
+  // Get the path from root to a specific node
+  const getNodePath = useCallback((nodeId: string): string[] => {
+    const path: string[] = [];
+    let currentId: string | null = nodeId;
+
+    while (currentId) {
+      const node = nodes.find(n => n.id === currentId);
+      if (node) {
+        path.unshift(node.data.chinese);
+        // Find parent
+        const parentEdge = edges.find(e => e.target === currentId);
+        currentId = parentEdge ? parentEdge.source : null;
+      } else {
+        break;
+      }
+    }
+
+    return path;
+  }, [nodes, edges]);
 
   const calculateRadialPositions = (
     centerX: number,
@@ -74,8 +97,19 @@ function MindMapInner() {
     return positions;
   };
 
-  const onNodeClick: NodeMouseHandler = useCallback(async (event, node) => {
+  // Double click to expand node
+  const handleNodeDoubleClick: NodeMouseHandler = useCallback(async (event, node) => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+
     if (loadingNodeId || isGenerating) return;
+
+    // Get parent path for context
+    const parentPath = getNodePath(node.id);
+    // Remove the current node from path (we'll pass it separately)
+    parentPath.pop();
 
     setLoadingNodeId(node.id);
     setIsGenerating(true);
@@ -84,7 +118,10 @@ function MindMapInner() {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: node.data.chinese }),
+        body: JSON.stringify({
+          word: node.data.chinese,
+          parentPath: parentPath.length > 0 ? parentPath : undefined,
+        }),
       });
 
       if (!response.ok) throw new Error('生成失败');
@@ -147,8 +184,46 @@ function MindMapInner() {
       setLoadingNodeId(null);
       setIsGenerating(false);
     }
-  }, [nodes, edges, loadingNodeId, isGenerating, setNodes, setEdges, fitView]);
+  }, [nodes, edges, loadingNodeId, isGenerating, setNodes, setEdges, fitView, getNodePath]);
 
+  // Single click to select for editing or connecting
+  const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
+    // Use timer to distinguish single click from double click
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+      return; // This is actually a double click
+    }
+
+    clickTimer.current = setTimeout(() => {
+      clickTimer.current = null;
+
+      // If shift key is pressed, add to selection for connecting
+      if (event.shiftKey) {
+        setSelectedNodeIds(prev => {
+          if (prev.includes(node.id)) {
+            return prev.filter(id => id !== node.id);
+          } else {
+            return [...prev, node.id];
+          }
+        });
+
+        setNodes(nds => nds.map(n => ({
+          ...n,
+          data: {
+            ...n.data,
+            isSelected: n.id === node.id ? !n.data.isSelected : n.data.isSelected,
+          }
+        })));
+      } else {
+        // Single click: start editing
+        setEditingNodeId(node.id);
+        setEditText(node.data.chinese);
+      }
+    }, 250);
+  }, [setNodes]);
+
+  // Right click for selection (for connecting)
   const onNodeContextMenu: NodeMouseHandler = useCallback((event, node) => {
     event.preventDefault();
     setSelectedNodeIds(prev => {
@@ -167,6 +242,48 @@ function MindMapInner() {
       }
     })));
   }, [setNodes]);
+
+  // Save edited node
+  const handleSaveEdit = useCallback(() => {
+    if (editingNodeId && editText.trim()) {
+      setNodes(nds => nds.map(n =>
+        n.id === editingNodeId
+          ? { ...n, data: { ...n.data, chinese: editText.trim() } }
+          : n
+      ));
+    }
+    setEditingNodeId(null);
+    setEditText('');
+  }, [editingNodeId, editText, setNodes]);
+
+  // Cancel editing
+  const handleCancelEdit = useCallback(() => {
+    setEditingNodeId(null);
+    setEditText('');
+  }, []);
+
+  // Delete node and its children
+  const handleDeleteNode = useCallback(() => {
+    if (!editingNodeId) return;
+
+    // Find all descendant nodes
+    const nodesToDelete = new Set<string>([editingNodeId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      edges.forEach(edge => {
+        if (nodesToDelete.has(edge.source) && !nodesToDelete.has(edge.target)) {
+          nodesToDelete.add(edge.target);
+          changed = true;
+        }
+      });
+    }
+
+    setNodes(nds => nds.filter(n => !nodesToDelete.has(n.id)));
+    setEdges(eds => eds.filter(e => !nodesToDelete.has(e.source) && !nodesToDelete.has(e.target)));
+    setEditingNodeId(null);
+    setEditText('');
+  }, [editingNodeId, edges, setNodes, setEdges]);
 
   const handleInputSubmit = useCallback(async (word: string) => {
     let centerX = 0;
@@ -288,6 +405,7 @@ function MindMapInner() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
+        onNodeDoubleClick={handleNodeDoubleClick}
         onNodeContextMenu={onNodeContextMenu}
         nodeTypes={nodeTypes}
         fitView
@@ -333,9 +451,7 @@ function MindMapInner() {
               disabled:opacity-50 disabled:cursor-not-allowed
               flex items-center gap-2
             "
-            style={{
-              boxShadow: '0 4px 16px rgba(255,215,0,0.3)',
-            }}
+            style={{ boxShadow: '0 4px 16px rgba(255,215,0,0.3)' }}
           >
             {isSummarizing ? (
               <>
@@ -374,17 +490,58 @@ function MindMapInner() {
       <InputBox onSubmit={handleInputSubmit} disabled={isGenerating} />
 
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 text-center text-sm text-gray-400">
-        <p>点击节点展开 • 右键选中 • 选中后输入可连接</p>
+        <p>单击编辑 • 双击展开 • 右键/Shift+单击选中连接</p>
       </div>
+
+      {/* Edit Modal */}
+      {editingNodeId && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[100]">
+          <div
+            className="bg-white rounded-2xl p-6 w-80"
+            style={{ boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}
+          >
+            <h3 className="text-lg font-bold text-gray-800 mb-4">编辑节点</h3>
+            <input
+              type="text"
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveEdit();
+                if (e.key === 'Escape') handleCancelEdit();
+              }}
+              autoFocus
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 mb-4"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveEdit}
+                className="flex-1 px-4 py-2 bg-yellow-400 text-black rounded-lg hover:bg-yellow-500 transition-colors font-medium"
+              >
+                保存
+              </button>
+              <button
+                onClick={handleDeleteNode}
+                className="px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+              >
+                删除
+              </button>
+              <button
+                onClick={handleCancelEdit}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary Modal */}
       {showSummary && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
           <div
             className="bg-white rounded-2xl max-w-3xl w-full max-h-[80vh] overflow-hidden flex flex-col"
-            style={{
-              boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
-            }}
+            style={{ boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}
           >
             <div className="p-6 border-b border-gray-200 flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-800">思路框架总结</h2>
