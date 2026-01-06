@@ -11,6 +11,7 @@ import ReactFlow, {
   ReactFlowProvider,
   useReactFlow,
   NodeMouseHandler,
+  EdgeMouseHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -49,7 +50,7 @@ function MindMapInner() {
   const [editText, setEditText] = useState('');
   const nodeIdCounter = useRef(0);
   const clickTimer = useRef<NodeJS.Timeout | null>(null);
-  const { fitView } = useReactFlow();
+  const { fitView, getNodes } = useReactFlow();
 
   const generateNodeId = () => {
     nodeIdCounter.current += 1;
@@ -58,14 +59,14 @@ function MindMapInner() {
 
   // Get the path from root to a specific node
   const getNodePath = useCallback((nodeId: string): string[] => {
+    const currentNodes = getNodes();
     const path: string[] = [];
     let currentId: string | null = nodeId;
 
     while (currentId) {
-      const node = nodes.find(n => n.id === currentId);
+      const node = currentNodes.find(n => n.id === currentId);
       if (node) {
         path.unshift(node.data.chinese);
-        // Find parent
         const parentEdge = edges.find(e => e.target === currentId);
         currentId = parentEdge ? parentEdge.source : null;
       } else {
@@ -74,7 +75,7 @@ function MindMapInner() {
     }
 
     return path;
-  }, [nodes, edges]);
+  }, [edges, getNodes]);
 
   const calculateRadialPositions = (
     centerX: number,
@@ -106,9 +107,15 @@ function MindMapInner() {
 
     if (loadingNodeId || isGenerating) return;
 
-    // Get parent path for context
+    // Get CURRENT position from ReactFlow state
+    const currentNodes = getNodes();
+    const currentNode = currentNodes.find(n => n.id === node.id);
+    if (!currentNode) return;
+
+    const currentX = currentNode.position.x;
+    const currentY = currentNode.position.y;
+
     const parentPath = getNodePath(node.id);
-    // Remove the current node from path (we'll pass it separately)
     parentPath.pop();
 
     setLoadingNodeId(node.id);
@@ -119,7 +126,7 @@ function MindMapInner() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          word: node.data.chinese,
+          word: currentNode.data.chinese,
           parentPath: parentPath.length > 0 ? parentPath : undefined,
         }),
       });
@@ -128,16 +135,18 @@ function MindMapInner() {
 
       const { words } = await response.json() as { words: WordData[] };
 
+      // Check existing children to avoid overlap
       const existingChildEdges = edges.filter(e => e.source === node.id);
       const startAngle = existingChildEdges.length > 0
         ? Math.random() * Math.PI * 2
         : -Math.PI / 2;
 
+      // Use CURRENT position and larger radius (300 instead of 200)
       const positions = calculateRadialPositions(
-        node.position.x,
-        node.position.y,
+        currentX,
+        currentY,
         words.length,
-        200,
+        300, // Increased from 200 to 300
         startAngle
       );
 
@@ -154,13 +163,13 @@ function MindMapInner() {
         },
       }));
 
+      // Simple edge style - no animation
       const newEdges: Edge[] = newNodes.map(newNode => ({
         id: `edge-${node.id}-${newNode.id}`,
         source: node.id,
         target: newNode.id,
         type: 'default',
-        animated: true,
-        style: { stroke: '#000', strokeWidth: 2 },
+        style: { stroke: '#666', strokeWidth: 1.5 },
       }));
 
       setNodes(nds => [...nds, ...newNodes]);
@@ -168,9 +177,9 @@ function MindMapInner() {
 
       const historyItem: HistoryItem = {
         id: generateNodeId(),
-        word: node.data.chinese,
+        word: currentNode.data.chinese,
         timestamp: new Date(),
-        nodes: [...nodes, ...newNodes],
+        nodes: [...currentNodes, ...newNodes],
         edges: [...edges, ...newEdges],
       };
       setHistory(prev => [historyItem, ...prev.slice(0, 49)]);
@@ -184,21 +193,19 @@ function MindMapInner() {
       setLoadingNodeId(null);
       setIsGenerating(false);
     }
-  }, [nodes, edges, loadingNodeId, isGenerating, setNodes, setEdges, fitView, getNodePath]);
+  }, [edges, loadingNodeId, isGenerating, setNodes, setEdges, fitView, getNodePath, getNodes]);
 
-  // Single click to select for editing or connecting
+  // Single click to edit
   const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
-    // Use timer to distinguish single click from double click
     if (clickTimer.current) {
       clearTimeout(clickTimer.current);
       clickTimer.current = null;
-      return; // This is actually a double click
+      return;
     }
 
     clickTimer.current = setTimeout(() => {
       clickTimer.current = null;
 
-      // If shift key is pressed, add to selection for connecting
       if (event.shiftKey) {
         setSelectedNodeIds(prev => {
           if (prev.includes(node.id)) {
@@ -216,14 +223,13 @@ function MindMapInner() {
           }
         })));
       } else {
-        // Single click: start editing
         setEditingNodeId(node.id);
         setEditText(node.data.chinese);
       }
     }, 250);
   }, [setNodes]);
 
-  // Right click for selection (for connecting)
+  // Right click for selection
   const onNodeContextMenu: NodeMouseHandler = useCallback((event, node) => {
     event.preventDefault();
     setSelectedNodeIds(prev => {
@@ -243,6 +249,14 @@ function MindMapInner() {
     })));
   }, [setNodes]);
 
+  // Click edge to delete it
+  const onEdgeClick: EdgeMouseHandler = useCallback((event, edge) => {
+    // Show confirm and delete
+    if (window.confirm('删除这条连线？')) {
+      setEdges(eds => eds.filter(e => e.id !== edge.id));
+    }
+  }, [setEdges]);
+
   // Save edited node
   const handleSaveEdit = useCallback(() => {
     if (editingNodeId && editText.trim()) {
@@ -256,7 +270,6 @@ function MindMapInner() {
     setEditText('');
   }, [editingNodeId, editText, setNodes]);
 
-  // Cancel editing
   const handleCancelEdit = useCallback(() => {
     setEditingNodeId(null);
     setEditText('');
@@ -266,7 +279,6 @@ function MindMapInner() {
   const handleDeleteNode = useCallback(() => {
     if (!editingNodeId) return;
 
-    // Find all descendant nodes
     const nodesToDelete = new Set<string>([editingNodeId]);
     let changed = true;
     while (changed) {
@@ -286,18 +298,19 @@ function MindMapInner() {
   }, [editingNodeId, edges, setNodes, setEdges]);
 
   const handleInputSubmit = useCallback(async (word: string) => {
+    const currentNodes = getNodes();
     let centerX = 0;
     let centerY = 0;
 
     if (selectedNodeIds.length > 0) {
-      const selectedNodes = nodes.filter(n => selectedNodeIds.includes(n.id));
+      const selectedNodes = currentNodes.filter(n => selectedNodeIds.includes(n.id));
       const avgX = selectedNodes.reduce((sum, n) => sum + n.position.x, 0) / selectedNodes.length;
       const avgY = selectedNodes.reduce((sum, n) => sum + n.position.y, 0) / selectedNodes.length;
-      centerX = avgX + 200;
+      centerX = avgX + 250;
       centerY = avgY;
-    } else if (nodes.length > 0) {
-      const maxX = Math.max(...nodes.map(n => n.position.x));
-      centerX = maxX + 300;
+    } else if (currentNodes.length > 0) {
+      const maxX = Math.max(...currentNodes.map(n => n.position.x));
+      centerX = maxX + 350;
       centerY = 0;
     }
 
@@ -315,12 +328,12 @@ function MindMapInner() {
       },
     };
 
+    // Simple edge style - yellow for user-created connections
     const newEdges: Edge[] = selectedNodeIds.map(selectedId => ({
       id: `edge-${selectedId}-${newNodeId}`,
       source: selectedId,
       target: newNodeId,
       type: 'default',
-      animated: true,
       style: { stroke: '#FFD700', strokeWidth: 2 },
     }));
 
@@ -334,10 +347,11 @@ function MindMapInner() {
     setTimeout(() => {
       fitView({ padding: 0.2, duration: 500 });
     }, 100);
-  }, [nodes, selectedNodeIds, setNodes, setEdges, fitView]);
+  }, [selectedNodeIds, setNodes, setEdges, fitView, getNodes]);
 
   const handleGenerateSummary = useCallback(async () => {
-    if (nodes.length === 0) {
+    const currentNodes = getNodes();
+    if (currentNodes.length === 0) {
       alert('请先添加一些概念节点');
       return;
     }
@@ -347,7 +361,7 @@ function MindMapInner() {
     setSummary('');
 
     try {
-      const allNodes = nodes.map(n => ({
+      const allNodes = currentNodes.map(n => ({
         chinese: n.data.chinese,
         english: n.data.english || '',
       }));
@@ -368,7 +382,7 @@ function MindMapInner() {
     } finally {
       setIsSummarizing(false);
     }
-  }, [nodes]);
+  }, [getNodes]);
 
   const handleHistorySelect = useCallback((historyId: string) => {
     const item = history.find(h => h.id === historyId);
@@ -407,12 +421,17 @@ function MindMapInner() {
         onNodeClick={onNodeClick}
         onNodeDoubleClick={handleNodeDoubleClick}
         onNodeContextMenu={onNodeContextMenu}
+        onEdgeClick={onEdgeClick}
         nodeTypes={nodeTypes}
         fitView
         minZoom={0.1}
         maxZoom={2}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         proOptions={{ hideAttribution: true }}
+        defaultEdgeOptions={{
+          type: 'default',
+          style: { stroke: '#666', strokeWidth: 1.5 },
+        }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e5e5e5" />
       </ReactFlow>
@@ -437,7 +456,6 @@ function MindMapInner() {
         </div>
       )}
 
-      {/* Top left buttons */}
       {nodes.length > 0 && (
         <div className="fixed top-4 left-4 z-50 flex gap-2">
           <button
@@ -490,7 +508,7 @@ function MindMapInner() {
       <InputBox onSubmit={handleInputSubmit} disabled={isGenerating} />
 
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 text-center text-sm text-gray-400">
-        <p>单击编辑 • 双击展开 • 右键/Shift+单击选中连接</p>
+        <p>单击编辑 • 双击展开 • 右键选中 • 点击连线可删除</p>
       </div>
 
       {/* Edit Modal */}
