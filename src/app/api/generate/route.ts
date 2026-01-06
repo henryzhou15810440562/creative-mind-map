@@ -20,11 +20,13 @@ const MAX_RETRIES = 2;
 interface WordData {
   chinese: string;
   english: string;
+  detail?: string; // 详细内容（公式、定义等）
+  hasDetail?: boolean; // 是否有详细内容
 }
 
 interface GenerateRequest {
   word?: string;
-  action?: 'summarize';
+  action?: 'summarize' | 'detail';
   allNodes?: WordData[];
   parentPath?: string[];
 }
@@ -56,6 +58,74 @@ export async function POST(request: NextRequest) {
     }
 
     const body: GenerateRequest = await request.json();
+
+    // 获取详细内容（公式、定义等）
+    if (body.action === 'detail') {
+      if (!body.word || typeof body.word !== 'string' || body.word.trim().length === 0) {
+        return NextResponse.json(
+          { error: '请提供有效的词语' },
+          { status: 400 }
+        );
+      }
+
+      const word = body.word.trim();
+      const parentPath = body.parentPath || [];
+      const contextStr = parentPath.length > 0 ? `在"${parentPath.join(' → ')}"的上下文中，` : '';
+
+      const message = await withRetry(() =>
+        client.messages.create({
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
+          messages: [
+            {
+              role: 'user',
+              content: `你是一个专业的知识助手。${contextStr}用户想了解"${word}"的详细内容。
+
+请判断"${word}"是否是一个需要详细解释的概念（如公式、定理、定义、具体方法等）。
+
+如果是，请提供详细内容，包括：
+- 数学公式：使用 LaTeX 格式或纯文本表示
+- 定理/定义：完整的表述
+- 方法/步骤：具体的操作说明
+- 示例：如果适用
+
+如果不是（只是一个分类或抽象概念），返回空字符串。
+
+返回 JSON 格式：
+{
+  "hasDetail": true/false,
+  "detail": "详细内容（如果有）"
+}
+
+示例1 - 三角函数导数公式：
+{
+  "hasDetail": true,
+  "detail": "基本三角函数导数公式：\\n\\n(sin x)' = cos x\\n(cos x)' = -sin x\\n(tan x)' = sec²x = 1/cos²x\\n(cot x)' = -csc²x = -1/sin²x\\n(sec x)' = sec x · tan x\\n(csc x)' = -csc x · cot x\\n\\n记忆技巧：\\n1. 正弦求导得余弦\\n2. 余弦求导得负正弦\\n3. 正切求导得正割平方"
+}
+
+示例2 - 导数（抽象概念）：
+{
+  "hasDetail": false,
+  "detail": ""
+}
+
+请直接返回 JSON，不要其他内容。`
+            }
+          ],
+        })
+      );
+
+      const responseText =
+        message.content[0].type === 'text' ? message.content[0].text : '';
+
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('AI 返回格式错误');
+      }
+
+      const result = JSON.parse(jsonMatch[0]);
+      return NextResponse.json(result);
+    }
 
     if (body.action === 'summarize') {
       if (!body.allNodes || body.allNodes.length === 0) {

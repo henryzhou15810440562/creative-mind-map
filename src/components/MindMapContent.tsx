@@ -31,6 +31,8 @@ const RETRY_DELAY = 100;
 interface WordData {
   chinese: string;
   english: string;
+  detail?: string;
+  hasDetail?: boolean;
 }
 
 interface HistoryItem {
@@ -181,7 +183,7 @@ function MindMapInner() {
     []
   );
 
-  // Double click to expand node
+  // Double click to expand node or show detail
   const handleNodeDoubleClick: NodeMouseHandler = useCallback(async (event, node) => {
     if (clickTimer.current) {
       clearTimeout(clickTimer.current);
@@ -205,6 +207,44 @@ function MindMapInner() {
     setIsGenerating(true);
 
     try {
+      // 首先尝试获取详细内容
+      const detailResponse = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'detail',
+          word: currentNode.data.chinese,
+          parentPath: parentPath.length > 0 ? parentPath : undefined,
+        }),
+      });
+
+      if (detailResponse.ok) {
+        const { hasDetail, detail } = await detailResponse.json();
+        
+        if (hasDetail && detail) {
+          // 更新节点显示详细内容
+          setNodes(nds => nds.map(n =>
+            n.id === node.id
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    detail,
+                    hasDetail: true,
+                  }
+                }
+              : n
+          ));
+          
+          setLoadingNodeId(null);
+          setIsGenerating(false);
+          
+          setTimeout(() => fitView({ padding: FIT_VIEW_PADDING, duration: FIT_VIEW_DURATION }), RETRY_DELAY);
+          return;
+        }
+      }
+
+      // 如果没有详细内容，继续生成子节点
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -240,6 +280,8 @@ function MindMapInner() {
         data: {
           chinese: word.chinese,
           english: word.english,
+          detail: word.detail,
+          hasDetail: word.hasDetail,
           isSelected: false,
           isCenter: false,
           isLoading: false,
@@ -603,7 +645,7 @@ function MindMapInner() {
       <InputBox onSubmit={handleInputSubmit} disabled={isGenerating} />
 
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 text-center text-sm text-gray-400">
-        <p>单击编辑 • 双击展开 • 右键选中 • 点击连线可删除</p>
+        <p>单击编辑 • 双击展开/查看详情 • 右键选中 • 点击连线可删除</p>
       </div>
 
       {/* 错误提示 */}

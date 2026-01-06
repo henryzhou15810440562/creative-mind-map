@@ -9,11 +9,78 @@ export interface WordNodeData {
   isSelected: boolean;
   isCenter: boolean;
   isLoading: boolean;
+  detail?: string; // 详细内容（公式、定义等）
+  hasDetail?: boolean; // 是否有详细内容
 }
 
 function WordNode({ data }: NodeProps<WordNodeData>) {
-  const { chinese, english, isSelected, isCenter, isLoading } = data;
+  const { chinese, english, isSelected, isCenter, isLoading, detail, hasDetail } = data;
 
+  // 如果有详细内容，使用矩形卡片样式
+  if (detail) {
+    const maxWidth = 400;
+    const minWidth = 200;
+    
+    return (
+      <>
+        <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+        <div
+          className={`
+            relative cursor-pointer select-none
+            transition-all duration-300 ease-out
+            hover:scale-105 active:scale-95
+            ${isLoading ? 'animate-pulse' : ''}
+            rounded-2xl p-4
+          `}
+          style={{
+            minWidth: minWidth,
+            maxWidth: maxWidth,
+            background: isSelected
+              ? 'linear-gradient(135deg, #FFD700 0%, #FFC107 100%)'
+              : 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            border: isSelected
+              ? '2px solid #FFD700'
+              : '1px solid rgba(0,0,0,0.1)',
+            boxShadow: isSelected
+              ? '0 8px 32px rgba(255,215,0,0.3), inset 0 2px 4px rgba(255,255,255,0.5)'
+              : '0 8px 32px rgba(0,0,0,0.15), inset 0 2px 4px rgba(255,255,255,0.5)',
+          }}
+        >
+          <div className={`text-base font-bold mb-2 ${isSelected ? 'text-black' : 'text-gray-800'}`}>
+            {chinese}
+          </div>
+          {english && (
+            <div className={`text-xs mb-2 ${isSelected ? 'text-gray-700' : 'text-gray-500'}`}>
+              {english}
+            </div>
+          )}
+          <div 
+            className={`text-sm leading-relaxed whitespace-pre-wrap ${isSelected ? 'text-gray-900' : 'text-gray-700'}`}
+            style={{
+              fontFamily: 'monospace',
+              wordBreak: 'break-word',
+            }}
+          >
+            {detail}
+          </div>
+          {isLoading && (
+            <div
+              className="absolute inset-0 rounded-2xl animate-ping"
+              style={{
+                border: '2px solid #FFD700',
+                opacity: 0.5,
+              }}
+            />
+          )}
+        </div>
+        <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+      </>
+    );
+  }
+
+  // 原有的圆形节点样式
   const size = isCenter || isSelected ? 140 : 110;
   const fontSize = isCenter || isSelected ? 'text-lg' : 'text-base';
   const englishFontSize = isCenter || isSelected ? 'text-sm' : 'text-xs';
@@ -71,6 +138,20 @@ function WordNode({ data }: NodeProps<WordNodeData>) {
             }}
           >
             {english}
+          </div>
+        )}
+        
+        {/* 显示有详细内容的指示器 */}
+        {hasDetail && (
+          <div
+            className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center"
+            style={{
+              boxShadow: '0 2px 8px rgba(59, 130, 246, 0.5)',
+            }}
+          >
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </div>
         )}
 
