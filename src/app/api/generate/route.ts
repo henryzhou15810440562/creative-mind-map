@@ -143,10 +143,10 @@ export async function POST(request: NextRequest) {
         client.messages.create({
           model: MODEL,
           max_tokens: MAX_TOKENS,
-        messages: [
-          {
-            role: 'user',
-            content: `你是一个专业的知识整理助手。用户通过思维导图探索了以下概念和主题：
+          messages: [
+            {
+              role: 'user',
+              content: `你是一个专业的知识整理助手。用户通过思维导图探索了以下概念和主题：
 
 ${nodesList}
 
@@ -160,9 +160,10 @@ ${nodesList}
 5. 给出进一步探索的建议
 
 请用中文回答，格式清晰，使用 Markdown 格式。`
-          }
-        ],
-      });
+            }
+          ],
+        })
+      );
 
       const responseText = message.content[0].type === 'text'
         ? message.content[0].text
